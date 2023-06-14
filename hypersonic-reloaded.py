@@ -1,4 +1,10 @@
-from collections import deque
+from __future__ import annotations
+
+from time import perf_counter
+
+from enum import Enum
+
+from copy import copy
 
 from random import choice
 
@@ -12,13 +18,25 @@ import math
 
 
 def idebug(*args):
-    return
+    # return
     print(*args, file=sys.stderr)
 
 
 def debug(*args):
     # return
     print(*args, file=sys.stderr)
+
+
+"""
+    Extra Portée : les bombes du joueur explosent avec une portée accrue de une unité. 
+                    Cela ne s'applique pas aux bombes déjà en jeu.
+    Extra Bombe : le joueur peut avoir une bombe de plus en jeu à la fois.
+"""
+
+
+class ItemType(Enum):
+    XTRA_RANGE = 1
+    XTRA_BOMB = 2
 
 
 @dataclass
@@ -29,8 +47,14 @@ class Position:
     def dist(self, other) -> int:
         return abs(other.x - self.x) + abs(other.y - self.y)
 
+    def is_bomb(self, bombs: List[Bomb]) -> int:
+        return any([self == b.pos for b in bombs])
+
     def __eq__(self, other) -> int:
         return other.x == self.x and other.y == self.y
+
+    def __copy__(self):
+        return Position(self.x, self.y)
 
     def __repr__(self):
         return f'{self.x} {self.y}'
@@ -52,47 +76,83 @@ class Bomb:
     countdown: int  # le nombre de tours de jeu restants avant que la bombe explose.
     range: int  # la valeur de portée de cette bombe
 
+    def __eq__(self, other):
+        return self.pos == other.pos
 
-def bomb_damage(player: Player, pos: Position) -> int:
+    def __copy__(self):
+        return Bomb(self.owner, copy(self.pos), self.countdown, self.range)
+
+
+@dataclass
+class Item:
+    type: ItemType
+    pos: Position
+
+
+def bomb_damage(player: Player, pos: Position, bombs: List[Bomb]) -> int:
     """
         Calculate number of boxes' explosions
     :param player: player launching the bomb
     :param pos: position of the bomb
     :return: damage score of bomb
     """
+    active_bombs: List[Bomb] = [copy(b) for b in bombs]
+    if pos.is_bomb(bombs):
+        bomb: Bomb = [b for b in active_bombs if b.pos == pos][0]
+        active_bombs.remove(bomb)
     damage: int = 0
     x, y = pos.x, pos.y
     for _ in range(1, player.b_range):
         x += 1
         if not 0 <= x < width:
             break
-        elif boxes[x, y] == 1:
-            damage += 1
+        elif boxes[x, y]:
+            damage += boxes[x, y]
             break
+        else:
+            new_pos = Position(x, y)
+            if new_pos.is_bomb(active_bombs):
+                damage += bomb_damage(player, new_pos, active_bombs)
+                break
     x, y = pos.x, pos.y
     for _ in range(1, player.b_range):
         x -= 1
         if not 0 <= x < width:
             break
-        elif boxes[x, y] == 1:
-            damage += 1
+        elif boxes[x, y]:
+            damage += boxes[x, y]
             break
+        else:
+            new_pos = Position(x, y)
+            if new_pos.is_bomb(active_bombs):
+                damage += bomb_damage(player, new_pos, active_bombs)
+                break
     x, y = pos.x, pos.y
     for _ in range(1, player.b_range):
         y += 1
         if not 0 <= y < height:
             break
-        elif boxes[x, y] == 1:
-            damage += 1
+        elif boxes[x, y]:
+            damage += boxes[x, y]
             break
+        else:
+            new_pos = Position(x, y)
+            if new_pos.is_bomb(active_bombs):
+                damage += bomb_damage(player, new_pos, active_bombs)
+                break
     x, y = pos.x, pos.y
     for _ in range(1, player.b_range):
         y -= 1
         if not 0 <= y < height:
             break
-        elif boxes[x, y] == 1:
-            damage += 1
+        elif boxes[x, y]:
+            damage += boxes[x, y]
             break
+        else:
+            new_pos = Position(x, y)
+            if new_pos.is_bomb(active_bombs):
+                damage += bomb_damage(player, new_pos, active_bombs)
+                break
     return damage
 
 
@@ -110,6 +170,7 @@ in_grid = lambda x, y: 0 <= x < width and 0 <= y < height
 DIRECTIONS = [(-1, 0), (0, 1), (1, 0), (0, -1)]
 PLAYER = 0
 BOMB = 1
+ITEM = 2
 # Auto-generated code below aims at helping you parse
 # the standard input according to the problem statement.
 
@@ -118,16 +179,21 @@ idebug(width, height, my_id)
 
 players: List[Player] = []
 
+item_collect: bool = False
+bomb_plant: bool = False
+
 # game loop
 while True:
     boxes: array = zeros(shape=(width, height), dtype=int)
     t_boxes = boxes.T
     bombs: List[Bomb] = []
+    items: List[Item] = []
     for i in range(height):
         row = input()
         idebug(row)
         for j, value in enumerate(list(row)):
-            boxes[j, i] = 1 if value == '0' else 0
+            boxes[j, i] = 0 if value == '.' else int(value)
+    tic = perf_counter()
     entities = int(input())
     idebug(entities)
     for i in range(entities):
@@ -140,8 +206,10 @@ while True:
                 player.pos, player.bombs = pos, param_1
             else:
                 players.append(Player(id=owner, pos=pos, bombs=param_1, b_range=param_2, target=None))
-        else:
+        elif entity_type == BOMB:
             bombs.append(Bomb(owner=owner, pos=pos, countdown=param_1, range=param_2))
+        else:
+            items.append(Item(type=ItemType(param_2), pos=pos))
 
     player: Player = [p for p in players if p.id == my_id][0]
     opponent: Player = [p for p in players if p.id != my_id][0]
@@ -151,29 +219,59 @@ while True:
     # Write an action using print
     # To debug: print("Debug messages...", file=sys.stderr, flush=True)
 
-    available_moves: List[Position] = [Position(x, y) for x in range(width) for y in range(height) if not boxes[x, y]]
+    available_moves: List[Position] = [Position(x, y) for x in range(width) for y in range(height) if
+                                       not boxes[x, y]]  # and not Position(x, y).is_bomb(my_bombs)]
 
     if player.target:
-        debug(f'player bringing bomb to {player.target}')
+        debug(f'player moving to {player.target}')
+        debug(f'item collect = {item_collect}')
+        debug(f'bomb plant = {bomb_plant}')
 
-    if player.bombs:
-        if player.target:
-            if player.pos == player.target:
-                print(f'BOMB {player.pos} BOMB {player.pos}')
-                available_moves.remove(player.target)
-                player.target = None
-            else:
-                print(f'MOVE {player.target}')
-        else:
-            # bomb_candidates = [(p, bomb_damage(player, p)) for p in available_moves]
-            # bomb_candidates.sort(key=lambda x: x[1], reverse=True)
-            player.target = max(available_moves, key=lambda p: bomb_damage(player, p) / (1 + p.dist(player.pos)))
-            #player.target = max(available_moves, key=lambda p: bomb_damage(player, p))
+    if items and not bomb_plant:
+        if not player.target:
+            xtra_bomb_items: List[Item] = [i for i in items if i.type == ItemType.XTRA_BOMB]
+            xtra_range_items: List[Item] = [i for i in items if i.type == ItemType.XTRA_RANGE]
+            closest_xtra_bomb_item: Item = min(xtra_bomb_items,
+                                               key=lambda i: i.pos.dist(player.pos)) if xtra_bomb_items else None
+            closest_xtra_range_item: Item = min(xtra_range_items,
+                                                key=lambda i: i.pos.dist(player.pos)) if xtra_range_items else None
+            if player.bombs < 3 and closest_xtra_bomb_item:
+                player.target = closest_xtra_bomb_item.pos
+                item_collect: bool = True
+            elif player.b_range < 6 and closest_xtra_range_item:
+                player.target = closest_xtra_range_item.pos
+                item_collect: bool = True
+        elif player.pos == player.target:
+            player.target = None
+            item_collect: bool = False
+        if item_collect:
             print(f'MOVE {player.target}')
     else:
-        if my_bombs:
-            best_move: Position = max(available_moves, key=lambda p: sum([p.dist(b.pos) for b in bombs]))
-            print(f'MOVE {best_move}')
+        item_collect = False
+
+    if not item_collect:
+        if player.bombs:
+            if player.target:
+                if player.pos == player.target:
+                    print(f'BOMB {player.pos} BOMB {player.pos}')
+                    available_moves.remove(player.target)
+                    player.target = None
+                    bomb_plant = False
+                else:
+                    print(f'MOVE {player.target}')
+            else:
+                bomb_candidates = [(p, bomb_damage(player, p, bombs)) for p in available_moves]
+                bomb_candidates.sort(key=lambda x: x[1], reverse=True)
+                # player.target = max(available_moves, key=lambda p: bomb_damage(player, p, bombs) / (1 + p.dist(player.pos)))
+                player.target = max(available_moves, key=lambda p: bomb_damage(player, p, bombs))
+                bomb_plant = True
+                print(f'MOVE {player.target}')
         else:
-            move: Position = choice(available_moves)
-            print(f'MOVE {move}')
+            if my_bombs:
+                best_move: Position = max(available_moves, key=lambda p: sum([p.dist(b.pos) for b in bombs]))
+                print(f'MOVE {best_move}')
+            else:
+                move: Position = choice(available_moves)
+                print(f'MOVE {move}')
+
+    debug(f'elapsed time = {round((perf_counter() - tic) * 100, 2)} ms')
