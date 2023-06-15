@@ -8,4 +8,11 @@ https://www.codingame.com/ide/puzzle/hypersonic
 
 - Wood 2 to Wood 1:
   - Les caisses peuvent désormais contenir des objets. Ces nouveaux objets améliorent la portée de vos bombes et augmente le nombre de bombes que vous pouvez placer à la fois.
-- [ ] place a bomb and go to the closest safe spot. If there is no safe spot, then do not place a bomb
+- [X] collect items, place a bomb and try to stay away from opponent bombs
+
+- Wood 1 to Bronze:
+  - La grille contient des murs. Les bombes adverses sont maintenant dangereuses. Détruire des caisses reste la priorité, mais soyez prudents en vous déplaçant sur la carte.
+- [X] collect items, place a bomb and stay away from opponent bombs
+
+- Bronze to Silver:
+  - Vos bombes sont désormais dangereuses pour vous aussi. Les parties peuvent désormais se jouer jusqu'à 4 joueurs. Les parties se terminent 20 tours après la destruction de la dernière caisse.
